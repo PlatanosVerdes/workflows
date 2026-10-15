@@ -1,0 +1,112 @@
+name: Release
+
+# Reusable: every app repo calls this on each push to main. It tags the commit with CalVer
+# (vYYYY.MM.DD, then .1, .2...) and publishes ghcr.io/<owner>/<repo>:<tag> for the Pi.
+# Tag and image live in one workflow because a tag pushed with GITHUB_TOKEN triggers nothing.
+#
+# Caller:
+#   on: {push: {branches: [main]}}
+#   permissions: {contents: write, packages: write}
+#   jobs:
+#     release:
+#       uses: PlatanosVerdes/workflows/.github/workflows/release.yml@main
+
+on:
+  workflow_call:
+    outputs:
+      tag:
+        value: ${{ jobs.tag.outputs.tag }}
+      image:
+        value: ${{ jobs.image.outputs.image }}
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Several pushes landing together each computed the same free number.
+    concurrency:
+      group: release-tag-${{ github.repository }}
+      cancel-in-progress: false
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create CalVer tag
+        id: tag
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # A tag can still be pushed by hand between the fetch and the push.
+          for attempt in 1 2 3 4 5; do
+            git fetch --tags --force --prune-tags --quiet
+
+            # A dot, never a dash: `sort -V` reads v2026.08.18-9 as older than v2026.08.18.1.
+            base="v$(date +%Y.%m.%d)"
+            tag="$base"
+            n=1
+            while git rev-parse -q --verify "refs/tags/$tag" >/dev/null; do
+              tag="$base.$n"
+              n=$((n + 1))
+            done
+
+            git tag -a "$tag" -m "Release $tag"
+            if git push origin "$tag"; then
+              echo "Created tag $tag"
+              echo "tag=$tag" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            echo "Tag $tag already exists on the remote, retrying ($attempt/5)"
+            git tag -d "$tag"
+            sleep $((attempt * 2))
+          done
+
+          echo "Could not create a tag after 5 attempts"
+          exit 1
+
+  image:
+    needs: tag
+    # Native arm64, free for public repos: the Pi pulls this instead of compiling it.
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
+
+      - name: Image name
+        id: name
+        run: |
+          repo="${GITHUB_REPOSITORY,,}"
+          echo "image=ghcr.io/$repo:${{ needs.tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.name.outputs.image }}
+          build-args: VERSION=${{ needs.tag.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.tag.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
