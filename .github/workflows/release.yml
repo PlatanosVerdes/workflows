@@ -6,12 +6,15 @@ on:
   workflow_call:
     inputs:
       deploy-repo:
-        description: Repo told about every published image, as a repository_dispatch "app-released".
+        description: Repo whose deploy workflow runs after every published image.
         type: string
         default: ''
+      deploy-workflow:
+        type: string
+        default: bump-app-versions.yml
     secrets:
       DEPLOY_TOKEN:
-        description: Fine-grained token with Contents write on deploy-repo.
+        description: Fine-grained token with only Actions write on deploy-repo.
         required: false
     outputs:
       tag:
@@ -114,11 +117,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - name: Tell the deploy repo
+      # workflow_dispatch and not repository_dispatch: it needs Actions write, which cannot touch code.
+      - name: Run the deploy workflow
         env:
           GH_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
-        run: |
-          gh api "repos/${{ inputs.deploy-repo }}/dispatches" \
-            -f event_type=app-released \
-            -f "client_payload[repo]=${{ github.event.repository.name }}" \
-            -f "client_payload[tag]=${{ needs.tag.outputs.tag }}"
+        run: gh workflow run "${{ inputs.deploy-workflow }}" -R "${{ inputs.deploy-repo }}"
