@@ -1,15 +1,6 @@
 name: Release
 
-# Reusable: every app repo calls this on each push to main. It tags the commit with CalVer
-# (vYYYY.MM.DD, then .1, .2...) and publishes ghcr.io/<owner>/<repo>:<tag> for the Pi.
-# Tag and image live in one workflow because a tag pushed with GITHUB_TOKEN triggers nothing.
-#
-# Caller:
-#   on: {push: {branches: [main]}}
-#   permissions: {contents: write, packages: write}
-#   jobs:
-#     release:
-#       uses: PlatanosVerdes/workflows/.github/workflows/release.yml@main
+# Tag and image share one workflow because a tag pushed with GITHUB_TOKEN triggers nothing.
 
 on:
   workflow_call:
@@ -24,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # Several pushes landing together each computed the same free number.
     concurrency:
       group: release-tag-${{ github.repository }}
       cancel-in-progress: false
@@ -42,7 +32,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # A tag can still be pushed by hand between the fetch and the push.
           for attempt in 1 2 3 4 5; do
             git fetch --tags --force --prune-tags --quiet
 
@@ -72,7 +61,6 @@ jobs:
 
   image:
     needs: tag
-    # Native arm64, free for public repos: the Pi pulls this instead of compiling it.
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
