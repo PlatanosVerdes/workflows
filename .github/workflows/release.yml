@@ -4,6 +4,15 @@ name: Release
 
 on:
   workflow_call:
+    inputs:
+      deploy-repo:
+        description: Repo told about every published image, as a repository_dispatch "app-released".
+        type: string
+        default: ''
+    secrets:
+      DEPLOY_TOKEN:
+        description: Fine-grained token with Contents write on deploy-repo.
+        required: false
     outputs:
       tag:
         value: ${{ jobs.tag.outputs.tag }}
@@ -98,3 +107,18 @@ jobs:
             org.opencontainers.image.version=${{ needs.tag.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  notify:
+    needs: [tag, image]
+    if: inputs.deploy-repo != ''
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Tell the deploy repo
+        env:
+          GH_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+        run: |
+          gh api "repos/${{ inputs.deploy-repo }}/dispatches" \
+            -f event_type=app-released \
+            -f "client_payload[repo]=${{ github.event.repository.name }}" \
+            -f "client_payload[tag]=${{ needs.tag.outputs.tag }}"
