@@ -121,4 +121,6 @@ jobs:
       - name: Run the deploy workflow
         env:
           GH_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
-        run: gh workflow run "${{ inputs.deploy-workflow }}" -R "${{ inputs.deploy-repo }}"
+        run: |
+          gh workflow run "${{ inputs.deploy-workflow }}" -R "${{ inputs.deploy-repo }}" \
+            -f app="${{ github.event.repository.name }}" -f tag="${{ needs.tag.outputs.tag }}"

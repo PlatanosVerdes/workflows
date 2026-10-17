@@ -6,7 +6,8 @@ Reusable GitHub Actions workflows shared by my repos.
 
 On every push to main: tags the commit with CalVer (vYYYY.MM.DD, then .1, .2...), publishes
 an arm64 image to ghcr.io/<owner>/<repo>:<tag> and, with `deploy-repo`, runs that repo's
-`deploy-workflow` (default `bump-app-versions.yml`). Caller:
+`deploy-workflow` (default `bump-app-versions.yml`) with inputs `app` (this repo's name) and
+`tag`. Caller:
 
 ```yaml
 name: Release
