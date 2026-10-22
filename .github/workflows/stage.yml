@@ -1,0 +1,76 @@
+name: Stage
+
+# Publishes the ref it runs on as stage-<sha> and has the deploy repo run it as the app's stage,
+# or turns that stage off. No CalVer tag: a stage build is not a release.
+
+on:
+  workflow_call:
+    inputs:
+      action:
+        description: deploy or stop
+        type: string
+        default: deploy
+      deploy-repo:
+        type: string
+        required: true
+      deploy-workflow:
+        type: string
+        default: bump-app-versions.yml
+    secrets:
+      DEPLOY_TOKEN:
+        description: Fine-grained token with only Actions write on deploy-repo.
+        required: true
+
+jobs:
+  image:
+    if: inputs.action == 'deploy'
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.name.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image name
+        id: name
+        run: |
+          tag="stage-${GITHUB_SHA::12}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}:$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.name.outputs.image }}
+          build-args: VERSION=${{ steps.name.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.name.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  notify:
+    needs: image
+    if: always() && (needs.image.result == 'success' || inputs.action == 'stop')
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Run the deploy workflow
+        env:
+          GH_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+          TAG: ${{ inputs.action == 'stop' && 'off' || needs.image.outputs.tag }}
+        run: |
+          gh workflow run "${{ inputs.deploy-workflow }}" -R "${{ inputs.deploy-repo }}" \
+            -f app="${{ github.event.repository.name }}" -f tag="$TAG" -f slot=stage
