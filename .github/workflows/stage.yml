@@ -1,7 +1,6 @@
 name: Stage
 
-# Publishes the ref it runs on as stage-<sha> and has the deploy repo run it as the app's stage,
-# or turns that stage off. No CalVer tag: a stage build is not a release.
+# No CalVer tag: a stage build is not a release.
 
 on:
   workflow_call:
